@@ -932,7 +932,7 @@ local TITLE_TEXT = "ZEY.EXE - BUBBLE GUM"
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
 title.Position = UDim2.fromOffset(32, 0)
-title.Size = UDim2.new(1, -70, 1, 0)
+title.Size = UDim2.new(1, -96, 1, 0)
 title.Font = FONT_MAIN
 title.TextSize = 17
 title.TextColor3 = WHITE
@@ -3010,6 +3010,535 @@ task.spawn(function()
 		end
 	end
 end)
+
+---------------------------------------------------------------------
+-- SETTINGS: FPS cap slider + themes (gear button next to the rejoin button)
+-- Everything lives inside one function, so it adds almost nothing to Lua's 200-locals limit.
+---------------------------------------------------------------------
+;(function()
+	local HttpService = game:GetService("HttpService")
+	local SAVE_FILE = "zey_settings.json"
+
+	local function rgb(r, g, b)
+		return Color3.fromRGB(r, g, b)
+	end
+
+	-- Themes. Keep TEXT readable on FACE / INSET, and keep every colour different from the others
+	-- inside one theme (the recolour works by matching colours).
+	local THEMES = {
+		{
+			name = "Bubble Gum",
+			PINK = rgb(255, 105, 180), PINK_DARK = rgb(214, 60, 140), BLUE = rgb(110, 225, 255),
+			MINT = rgb(130, 240, 190), YELLOW = rgb(255, 232, 110),
+			FACE = rgb(247, 198, 226), FACE_HOVER = rgb(255, 220, 240), FACE_DARK = rgb(214, 160, 200),
+			INSET = rgb(255, 244, 251), OUTLINE = rgb(48, 14, 62), BEVEL_SHADE = rgb(160, 90, 150),
+			SELECT = rgb(112, 52, 170), SELECT_HOVER = rgb(232, 200, 246),
+			LED_OFF = rgb(120, 50, 90), LED_ON = rgb(30, 220, 110), FIELD_HOVER = rgb(255, 230, 245),
+			TAB_OFF = rgb(120, 60, 110), TEXT = rgb(48, 14, 62), BL = rgb(255, 255, 255),
+			G1 = rgb(255, 90, 170), G2 = rgb(150, 80, 220), G3 = rgb(80, 170, 255),
+		},
+		{
+			name = "Ocean",
+			PINK = rgb(45, 150, 230), PINK_DARK = rgb(20, 100, 170), BLUE = rgb(110, 235, 225),
+			MINT = rgb(120, 230, 170), YELLOW = rgb(255, 226, 120),
+			FACE = rgb(190, 226, 246), FACE_HOVER = rgb(215, 240, 255), FACE_DARK = rgb(150, 196, 226),
+			INSET = rgb(240, 250, 255), OUTLINE = rgb(10, 38, 70), BEVEL_SHADE = rgb(100, 150, 190),
+			SELECT = rgb(24, 90, 160), SELECT_HOVER = rgb(190, 222, 246),
+			LED_OFF = rgb(60, 100, 140), LED_ON = rgb(30, 220, 110), FIELD_HOVER = rgb(225, 244, 255),
+			TAB_OFF = rgb(50, 100, 140), TEXT = rgb(10, 38, 70), BL = rgb(255, 255, 255),
+			G1 = rgb(30, 150, 255), G2 = rgb(40, 200, 230), G3 = rgb(120, 240, 230),
+		},
+		{
+			name = "Matcha",
+			PINK = rgb(80, 180, 100), PINK_DARK = rgb(40, 120, 70), BLUE = rgb(190, 235, 120),
+			MINT = rgb(120, 220, 150), YELLOW = rgb(255, 214, 90),
+			FACE = rgb(232, 226, 190), FACE_HOVER = rgb(246, 242, 214), FACE_DARK = rgb(196, 200, 160),
+			INSET = rgb(252, 250, 232), OUTLINE = rgb(30, 50, 30), BEVEL_SHADE = rgb(140, 150, 110),
+			SELECT = rgb(50, 110, 70), SELECT_HOVER = rgb(214, 232, 196),
+			LED_OFF = rgb(90, 110, 80), LED_ON = rgb(40, 220, 110), FIELD_HOVER = rgb(248, 246, 222),
+			TAB_OFF = rgb(90, 110, 70), TEXT = rgb(30, 50, 30), BL = rgb(255, 255, 255),
+			G1 = rgb(90, 200, 110), G2 = rgb(170, 220, 90), G3 = rgb(240, 220, 110),
+		},
+		{
+			name = "Midnight",
+			PINK = rgb(255, 100, 190), PINK_DARK = rgb(255, 140, 210), BLUE = rgb(90, 230, 255),
+			MINT = rgb(40, 150, 105), YELLOW = rgb(200, 160, 40),
+			FACE = rgb(62, 66, 118), FACE_HOVER = rgb(84, 90, 150), FACE_DARK = rgb(44, 48, 90),
+			INSET = rgb(26, 28, 58), OUTLINE = rgb(8, 8, 24), BEVEL_SHADE = rgb(30, 32, 70),
+			SELECT = rgb(130, 70, 210), SELECT_HOVER = rgb(60, 56, 120),
+			LED_OFF = rgb(110, 110, 160), LED_ON = rgb(60, 255, 150), FIELD_HOVER = rgb(38, 42, 80),
+			TAB_OFF = rgb(150, 155, 210), TEXT = rgb(236, 238, 255), BL = rgb(120, 126, 190),
+			G1 = rgb(255, 80, 200), G2 = rgb(130, 80, 230), G3 = rgb(60, 180, 255),
+		},
+	}
+	local cur = THEMES[1] -- the colours the script was built with
+
+	-- which theme keys are matched when recolouring (text colours are matched separately,
+	-- because TEXT and OUTLINE are the same colour in the default theme)
+	local FILL_KEYS = {
+		"PINK", "PINK_DARK", "BLUE", "MINT", "YELLOW", "FACE", "FACE_HOVER", "FACE_DARK", "INSET",
+		"OUTLINE", "BEVEL_SHADE", "SELECT", "SELECT_HOVER", "LED_OFF", "LED_ON", "FIELD_HOVER",
+	}
+	local TEXT_KEYS = { "PINK_DARK", "LED_OFF", "TAB_OFF", "TEXT" }
+
+	local function remap(c, keys, old, new)
+		for _, k in ipairs(keys) do
+			if old[k] == c then
+				return new[k]
+			end
+		end
+		return c
+	end
+
+	local function applyTheme(new)
+		local old = cur
+		if old == new then return end
+
+		for _, inst in ipairs(gui:GetDescendants()) do
+			if not inst:GetAttribute("NoTheme") then
+				if inst:IsA("GuiObject") then
+					if string.sub(inst.Name, 1, 5) == "Bevel" then
+						local bg = inst.BackgroundColor3
+						if bg == old.BL then
+							inst.BackgroundColor3 = new.BL
+						elseif bg == old.BEVEL_SHADE then
+							inst.BackgroundColor3 = new.BEVEL_SHADE
+						end
+					else
+						inst.BackgroundColor3 = remap(inst.BackgroundColor3, FILL_KEYS, old, new)
+					end
+					if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+						inst.TextColor3 = remap(inst.TextColor3, TEXT_KEYS, old, new)
+						inst.TextStrokeColor3 = remap(inst.TextStrokeColor3, FILL_KEYS, old, new)
+					end
+					if inst:IsA("ScrollingFrame") then
+						inst.ScrollBarImageColor3 = remap(inst.ScrollBarImageColor3, FILL_KEYS, old, new)
+					end
+				elseif inst:IsA("UIStroke") then
+					inst.Color = remap(inst.Color, FILL_KEYS, old, new)
+				end
+			end
+		end
+
+		-- the colour variables the rest of the script reads (so new rows / hover tweens use the new theme)
+		PINK, PINK_DARK, BLUE, MINT, YELLOW = new.PINK, new.PINK_DARK, new.BLUE, new.MINT, new.YELLOW
+		FACE, FACE_HOVER, FACE_DARK, INSET, OUTLINE = new.FACE, new.FACE_HOVER, new.FACE_DARK, new.INSET, new.OUTLINE
+		BEVEL_SHADE, BEVEL_LIGHT = new.BEVEL_SHADE, new.BL
+		SELECT, SELECT_HOVER, LED_OFF, LED_ON = new.SELECT, new.SELECT_HOVER, new.LED_OFF, new.LED_ON
+		FIELD_HOVER, TAB_OFF_TEXT, TEXT_DARK = new.FIELD_HOVER, new.TAB_OFF, new.TEXT
+		ITEM_BG, ITEM_HOVER = new.INSET, new.SELECT_HOVER
+
+		-- title bar gradient + pulsing window border
+		titleGradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, new.G1),
+			ColorSequenceKeypoint.new(0.55, new.G2),
+			ColorSequenceKeypoint.new(1, new.G3),
+		})
+		mainStroke.Color = new.PINK
+		TweenService:Create(mainStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+			Color = new.BLUE,
+		}):Play()
+
+		cur = new
+	end
+
+	---------------------------------------------------------------------
+	-- Saving (only if your executor has writefile / readfile)
+	---------------------------------------------------------------------
+	local fps = 60
+
+	local function save()
+		if writefile then
+			pcall(function()
+				writefile(SAVE_FILE, HttpService:JSONEncode({ theme = cur.name, fps = fps }))
+			end)
+		end
+	end
+
+	local function loadSaved()
+		if readfile and isfile then
+			local ok, data = pcall(function()
+				if isfile(SAVE_FILE) then
+					return HttpService:JSONDecode(readfile(SAVE_FILE))
+				end
+			end)
+			if ok and type(data) == "table" then
+				return data
+			end
+		end
+		return nil
+	end
+
+	---------------------------------------------------------------------
+	-- Gear button (next to the rejoin button)
+	---------------------------------------------------------------------
+	local gearBtn = Instance.new("TextButton")
+	gearBtn.Name = "Settings"
+	gearBtn.AnchorPoint = Vector2.new(1, 0)
+	gearBtn.Position = UDim2.new(1, -57, 0, 8)
+	gearBtn.Size = UDim2.fromOffset(20, 20)
+	gearBtn.BackgroundColor3 = FACE
+	gearBtn.BorderSizePixel = 0
+	gearBtn.AutoButtonColor = false
+	gearBtn.Text = ""
+	gearBtn.ZIndex = 7
+	gearBtn.Parent = main
+	stroke(gearBtn, OUTLINE, 2)
+	local gearBevel = bevel(gearBtn, true, 2)
+
+	local gear = Instance.new("Frame") -- holds the drawn gear so only the icon spins, not the button
+	gear.AnchorPoint = Vector2.new(0.5, 0.5)
+	gear.Position = UDim2.new(0.5, 0, 0.5, 0)
+	gear.Size = UDim2.fromOffset(16, 16)
+	gear.BackgroundTransparency = 1
+	gear.ZIndex = 9
+	gear.Parent = gearBtn
+
+	for _, angle in ipairs({ 0, 45, 90, 135 }) do
+		local tooth = Instance.new("Frame")
+		tooth.AnchorPoint = Vector2.new(0.5, 0.5)
+		tooth.Position = UDim2.new(0.5, 0, 0.5, 0)
+		tooth.Size = UDim2.fromOffset(15, 3)
+		tooth.Rotation = angle
+		tooth.BackgroundColor3 = OUTLINE
+		tooth.BorderSizePixel = 0
+		tooth.ZIndex = 9
+		tooth.Parent = gear
+	end
+
+	local gearCenter = Instance.new("Frame")
+	gearCenter.AnchorPoint = Vector2.new(0.5, 0.5)
+	gearCenter.Position = UDim2.new(0.5, 0, 0.5, 0)
+	gearCenter.Size = UDim2.fromOffset(9, 9)
+	gearCenter.BackgroundColor3 = FACE
+	gearCenter.BorderSizePixel = 0
+	gearCenter.ZIndex = 10
+	gearCenter.Parent = gear
+	corner(gearCenter, 100)
+	stroke(gearCenter, OUTLINE, 2)
+
+	---------------------------------------------------------------------
+	-- Settings panel (overlay on top of the tabs)
+	---------------------------------------------------------------------
+	local panel = Instance.new("Frame")
+	panel.Name = "SettingsPanel"
+	panel.Position = UDim2.new(0, 10, 0, TITLE_H + 10)
+	panel.Size = UDim2.new(1, -20, 1, -(TITLE_H + 20))
+	panel.BackgroundColor3 = FACE
+	panel.BorderSizePixel = 0
+	panel.Active = true -- swallow clicks so nothing underneath is pressed
+	panel.Visible = false
+	panel.ZIndex = 40
+	panel.Parent = main
+	stroke(panel, OUTLINE, 2)
+	bevel(panel, true, 2)
+
+	local function label(text, x, y, w, h, size, align)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Position = UDim2.new(0, x, 0, y)
+		l.Size = UDim2.new(w, w <= 1 and -x * 2 or 0, 0, h)
+		l.Font = FONT_SMALL
+		l.TextSize = size or 12
+		l.TextColor3 = TEXT_DARK
+		l.TextXAlignment = align or Enum.TextXAlignment.Left
+		l.Text = text
+		l.ZIndex = 43
+		l.Parent = panel
+		return l
+	end
+
+	local header = label("SETTINGS", 14, 6, 1, 20, 18)
+	header.Font = FONT_MAIN
+
+	local divA = Instance.new("Frame")
+	divA.Position = UDim2.new(0, 14, 0, 30)
+	divA.Size = UDim2.new(1, -28, 0, 2)
+	divA.BackgroundColor3 = BEVEL_SHADE
+	divA.BorderSizePixel = 0
+	divA.ZIndex = 43
+	divA.Name = "BevelDividerA" -- named Bevel* so the recolour treats it like a bevel line
+	divA.Parent = panel
+	local divB = Instance.new("Frame")
+	divB.Position = UDim2.new(0, 14, 0, 32)
+	divB.Size = UDim2.new(1, -28, 0, 2)
+	divB.BackgroundColor3 = BEVEL_LIGHT
+	divB.BorderSizePixel = 0
+	divB.ZIndex = 43
+	divB.Name = "BevelDividerB"
+	divB.Parent = panel
+
+	-- FPS slider ------------------------------------------------------
+	label("FPS CAP", 14, 40, 0.5, 16, 12)
+	local fpsValue = label("60 FPS", 14, 40, 1, 16, 13, Enum.TextXAlignment.Right)
+	fpsValue.Font = FONT_MAIN
+
+	local track = Instance.new("TextButton")
+	track.Name = "FpsTrack"
+	track.Position = UDim2.new(0, 20, 0, 60)
+	track.Size = UDim2.new(1, -40, 0, 18)
+	track.BackgroundColor3 = INSET
+	track.BorderSizePixel = 0
+	track.AutoButtonColor = false
+	track.Text = ""
+	track.ZIndex = 42
+	track.Parent = panel
+	stroke(track, OUTLINE, 2)
+	bevel(track, false, 2)
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.new(0, 0, 1, 0)
+	fill.BackgroundColor3 = PINK
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 42
+	fill.Parent = track
+
+	local knob = Instance.new("Frame")
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Position = UDim2.new(0, 0, 0.5, 0)
+	knob.Size = UDim2.fromOffset(12, 26)
+	knob.BackgroundColor3 = FACE
+	knob.BorderSizePixel = 0
+	knob.ZIndex = 46
+	knob.Parent = track
+	stroke(knob, OUTLINE, 2)
+	bevel(knob, true, 1)
+
+	local fpsStatus = label("> FPS cap not changed yet", 14, 114, 1, 14, 11)
+
+	local function updateSlider()
+		local t = (fps - 1) / 239
+		fill.Size = UDim2.new(t, 0, 1, 0)
+		knob.Position = UDim2.new(t, 0, 0.5, 0)
+		fpsValue.Text = fps .. " FPS"
+	end
+
+	local function applyFps(n)
+		fps = math.clamp(math.floor(n + 0.5), 1, 240)
+		updateSlider()
+		if setfpscap then
+			local ok = pcall(setfpscap, fps)
+			fpsStatus.Text = ok and ("> FPS cap set to " .. fps) or "> setfpscap failed"
+		else
+			fpsStatus.Text = "> your executor has no setfpscap"
+		end
+		save()
+	end
+
+	-- dragging the slider: the value follows the mouse, the cap is applied when you let go
+	-- (at a very low cap the game gets choppy, so applying only on release keeps the slider usable)
+	local dragging = false
+	local function setFromX(x)
+		local t = math.clamp((x - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
+		fps = math.clamp(math.floor(1 + t * 239 + 0.5), 1, 240)
+		updateSlider()
+	end
+
+	track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			setFromX(input.Position.X)
+		end
+	end)
+	table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			setFromX(input.Position.X)
+		end
+	end))
+	table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			dragging = false
+			applyFps(fps)
+		end
+	end))
+
+	-- quick buttons: -1 / +1 / presets (the presets also get you out of a 1 FPS cap)
+	local quick = Instance.new("Frame")
+	quick.Position = UDim2.new(0, 20, 0, 86)
+	quick.Size = UDim2.new(1, -40, 0, 22)
+	quick.BackgroundTransparency = 1
+	quick.ZIndex = 42
+	quick.Parent = panel
+
+	local quickDefs = {
+		{ "-1", function() applyFps(fps - 1) end },
+		{ "+1", function() applyFps(fps + 1) end },
+		{ "30", function() applyFps(30) end },
+		{ "60", function() applyFps(60) end },
+		{ "144", function() applyFps(144) end },
+		{ "240", function() applyFps(240) end },
+	}
+	for i, def in ipairs(quickDefs) do
+		local n = #quickDefs
+		local b = Instance.new("TextButton")
+		b.Position = UDim2.new((i - 1) / n, 0, 0, 0)
+		b.Size = UDim2.new(1 / n, (i < n) and -4 or 0, 1, 0)
+		b.BackgroundColor3 = FACE
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = false
+		b.Font = FONT_SMALL
+		b.TextSize = 12
+		b.TextColor3 = TEXT_DARK
+		b.Text = def[1]
+		b.ZIndex = 43
+		b.Parent = quick
+		stroke(b, OUTLINE, 2)
+		local bv = bevel(b, true, 1)
+
+		b.MouseEnter:Connect(function()
+			TweenService:Create(b, TweenInfo.new(0.1), { BackgroundColor3 = FACE_HOVER }):Play()
+		end)
+		b.MouseLeave:Connect(function()
+			bv.set(true)
+			TweenService:Create(b, TweenInfo.new(0.1), { BackgroundColor3 = FACE }):Play()
+		end)
+		b.MouseButton1Down:Connect(function()
+			bv.set(false)
+		end)
+		b.MouseButton1Up:Connect(function()
+			bv.set(true)
+		end)
+		b.MouseButton1Click:Connect(def[2])
+	end
+
+	-- Themes ------------------------------------------------------------
+	local divC = Instance.new("Frame")
+	divC.Name = "BevelDividerC"
+	divC.Position = UDim2.new(0, 14, 0, 136)
+	divC.Size = UDim2.new(1, -28, 0, 2)
+	divC.BackgroundColor3 = BEVEL_SHADE
+	divC.BorderSizePixel = 0
+	divC.ZIndex = 43
+	divC.Parent = panel
+	local divD = Instance.new("Frame")
+	divD.Name = "BevelDividerD"
+	divD.Position = UDim2.new(0, 14, 0, 138)
+	divD.Size = UDim2.new(1, -28, 0, 2)
+	divD.BackgroundColor3 = BEVEL_LIGHT
+	divD.BorderSizePixel = 0
+	divD.ZIndex = 43
+	divD.Parent = panel
+
+	label("THEME", 14, 146, 1, 16, 12)
+
+	local themeButtons = {}
+	local function refreshThemeButtons()
+		for _, tb in ipairs(themeButtons) do
+			tb.label.Text = ((tb.theme == cur) and "> " or "  ") .. string.upper(tb.theme.name)
+		end
+	end
+
+	for i, theme in ipairs(THEMES) do
+		local col = (i - 1) % 2
+		local row = math.floor((i - 1) / 2)
+
+		local b = Instance.new("TextButton")
+		b.Position = UDim2.new(col * 0.5, (col == 0) and 20 or 3, 0, 168 + row * 40)
+		b.Size = UDim2.new(0.5, -23, 0, 34)
+		b.BackgroundColor3 = FACE
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = false
+		b.Text = ""
+		b.ZIndex = 43
+		b.Parent = panel
+		stroke(b, OUTLINE, 2)
+		local bv = bevel(b, true, 2)
+
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Position = UDim2.fromOffset(6, 0)
+		l.Size = UDim2.new(1, -56, 1, 0)
+		l.Font = FONT_SMALL
+		l.TextSize = 12
+		l.TextColor3 = TEXT_DARK
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.TextTruncate = Enum.TextTruncate.AtEnd
+		l.ZIndex = 46
+		l.Parent = b
+
+		-- three colour chips showing the theme (fixed colours, never recoloured)
+		local chips = { theme.PINK, theme.BLUE, theme.FACE }
+		for c, color in ipairs(chips) do
+			local chip = Instance.new("Frame")
+			chip.AnchorPoint = Vector2.new(1, 0.5)
+			chip.Position = UDim2.new(1, -6 - (3 - c) * 13, 0.5, 0)
+			chip.Size = UDim2.fromOffset(10, 18)
+			chip.BackgroundColor3 = color
+			chip.BorderSizePixel = 0
+			chip.ZIndex = 46
+			chip:SetAttribute("NoTheme", true)
+			chip.Parent = b
+			local chipStroke = stroke(chip, theme.OUTLINE, 1)
+			chipStroke:SetAttribute("NoTheme", true)
+		end
+
+		table.insert(themeButtons, { theme = theme, label = l })
+
+		b.MouseEnter:Connect(function()
+			TweenService:Create(b, TweenInfo.new(0.1), { BackgroundColor3 = FACE_HOVER }):Play()
+		end)
+		b.MouseLeave:Connect(function()
+			bv.set(true)
+			TweenService:Create(b, TweenInfo.new(0.1), { BackgroundColor3 = FACE }):Play()
+		end)
+		b.MouseButton1Down:Connect(function()
+			bv.set(false)
+		end)
+		b.MouseButton1Up:Connect(function()
+			bv.set(true)
+		end)
+		b.MouseButton1Click:Connect(function()
+			burst(b)
+			applyTheme(theme)
+			refreshThemeButtons()
+			save()
+		end)
+	end
+
+	---------------------------------------------------------------------
+	-- Open / close the panel
+	---------------------------------------------------------------------
+	local open = false
+	gearBtn.MouseEnter:Connect(function()
+		TweenService:Create(gearBtn, TweenInfo.new(0.1), { BackgroundColor3 = BLUE }):Play()
+		gearCenter.BackgroundColor3 = BLUE
+		TweenService:Create(gear, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Rotation = 90 }):Play()
+	end)
+	gearBtn.MouseLeave:Connect(function()
+		gearBevel.set(not open)
+		TweenService:Create(gearBtn, TweenInfo.new(0.1), { BackgroundColor3 = FACE }):Play()
+		gearCenter.BackgroundColor3 = FACE
+		TweenService:Create(gear, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+	end)
+	gearBtn.MouseButton1Click:Connect(function()
+		open = not open
+		panel.Visible = open
+		gearBevel.set(not open)
+	end)
+
+	---------------------------------------------------------------------
+	-- Restore what was saved last time
+	---------------------------------------------------------------------
+	updateSlider()
+	refreshThemeButtons()
+
+	local saved = loadSaved()
+	if saved then
+		for _, theme in ipairs(THEMES) do
+			if theme.name == saved.theme then
+				applyTheme(theme)
+				refreshThemeButtons()
+				break
+			end
+		end
+		if type(saved.fps) == "number" then
+			applyFps(saved.fps)
+		end
+	end
+end)()
 
 ---------------------------------------------------------------------
 -- Dragging (smooth)
