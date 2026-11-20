@@ -932,7 +932,7 @@ local TITLE_TEXT = "ZEY.EXE - BUBBLE GUM"
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
 title.Position = UDim2.fromOffset(32, 0)
-title.Size = UDim2.new(1, -96, 1, 0)
+title.Size = UDim2.new(1, -120, 1, 0)
 title.Font = FONT_MAIN
 title.TextSize = 17
 title.TextColor3 = WHITE
@@ -1156,6 +1156,7 @@ end)
 local panels = {}
 local active = "Farm"
 local ready = false
+local minimized = false
 local resizeLock = false
 
 local function viewHeight(name)
@@ -1172,7 +1173,7 @@ local function targetHeight()
 end
 
 local function resizeMain()
-	if ready and not resizeLock then
+	if ready and not resizeLock and not minimized then
 		applyPanelSize(active)
 		main.Size = UDim2.fromOffset(GUI_WIDTH, targetHeight())
 	end
@@ -3538,6 +3539,84 @@ end)
 			applyFps(saved.fps)
 		end
 	end
+end)()
+
+---------------------------------------------------------------------
+-- MINIMIZE button (leftmost of the title bar buttons): collapses the window to just its title bar
+---------------------------------------------------------------------
+;(function()
+	local minBtn = Instance.new("TextButton")
+	minBtn.Name = "Minimize"
+	minBtn.AnchorPoint = Vector2.new(1, 0)
+	minBtn.Position = UDim2.new(1, -81, 0, 8)
+	minBtn.Size = UDim2.fromOffset(20, 20)
+	minBtn.BackgroundColor3 = FACE
+	minBtn.BorderSizePixel = 0
+	minBtn.AutoButtonColor = false
+	minBtn.Text = ""
+	minBtn.ZIndex = 7
+	minBtn.Parent = main
+	stroke(minBtn, OUTLINE, 2)
+	local minBevel = bevel(minBtn, true, 2)
+
+	-- icon: a flat bar ("_") while open, a little window outline while minimized
+	local bar = Instance.new("Frame")
+	bar.AnchorPoint = Vector2.new(0.5, 0.5)
+	bar.Position = UDim2.new(0.5, 0, 0.5, 4)
+	bar.Size = UDim2.fromOffset(10, 3)
+	bar.BackgroundColor3 = OUTLINE
+	bar.BorderSizePixel = 0
+	bar.ZIndex = 9
+	bar.Parent = minBtn
+
+	local box = Instance.new("Frame")
+	box.AnchorPoint = Vector2.new(0.5, 0.5)
+	box.Position = UDim2.new(0.5, 0, 0.5, 0)
+	box.Size = UDim2.fromOffset(10, 8)
+	box.BackgroundTransparency = 1
+	box.BorderSizePixel = 0
+	box.Visible = false
+	box.ZIndex = 9
+	box.Parent = minBtn
+	stroke(box, OUTLINE, 2)
+
+	minBtn.MouseEnter:Connect(function()
+		TweenService:Create(minBtn, TweenInfo.new(0.1), { BackgroundColor3 = YELLOW }):Play()
+	end)
+	minBtn.MouseLeave:Connect(function()
+		minBevel.set(not minimized)
+		TweenService:Create(minBtn, TweenInfo.new(0.1), { BackgroundColor3 = FACE }):Play()
+	end)
+	minBtn.MouseButton1Down:Connect(function()
+		minBevel.set(false)
+	end)
+	minBtn.MouseButton1Up:Connect(function()
+		minBevel.set(not minimized)
+	end)
+
+	local MIN_HEIGHT = TITLE_H + 6
+	minBtn.MouseButton1Click:Connect(function()
+		if not ready then return end
+		minimized = not minimized
+		bar.Visible = not minimized
+		box.Visible = minimized
+
+		-- close any open dropdown so it doesn't pop out when restoring
+		for _, d in ipairs(dropdowns) do
+			if d.open then d.setOpen(false) end
+		end
+
+		resizeLock = true
+		local goal = minimized and MIN_HEIGHT or targetHeight()
+		local t = TweenService:Create(main, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(GUI_WIDTH, goal),
+		})
+		t:Play()
+		t.Completed:Once(function()
+			resizeLock = false
+			resizeMain()
+		end)
+	end)
 end)()
 
 ---------------------------------------------------------------------
